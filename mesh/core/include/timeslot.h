@@ -63,7 +63,7 @@
 #define TIMESLOT_BASE_LENGTH_SHORT_US (3800UL)
 /** Allocated time between end timer timeout and actual timeslot end. Should be
  * longer than the longest global IRQ lock in the system. */
-#define TIMESLOT_END_SAFETY_MARGIN_US (100UL)
+#define TIMESLOT_END_SAFETY_MARGIN_US (1000UL)
 /** The upper limit for the length of a single timeslot. Has to be lower than
  * the 24bit TIMER0 rollover, as inforced by the Softdevice. */
 #define TIMESLOT_MAX_LENGTH_US        (10000000UL)
