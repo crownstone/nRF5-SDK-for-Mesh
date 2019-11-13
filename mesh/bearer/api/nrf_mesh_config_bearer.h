@@ -139,6 +139,11 @@
 #define BEARER_EVENT_FLAG_COUNT     10
 #endif
 
+/** Enable active scanner role */
+#ifndef SCANNER_ACTIVE_SCANNING
+#define SCANNER_ACTIVE_SCANNING 1
+#endif
+
 /** @} end of MESH_CONFIG_BEARER_EVENT */
 
 
