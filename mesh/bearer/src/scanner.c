@@ -212,6 +212,8 @@ static void radio_stop(void)
 {
     DEBUG_PIN_SCANNER_OFF(DEBUG_PIN_SCANNER_RADIO_IN_RX);
     NRF_RADIO->TASKS_DISABLE = 1;
+    /* clear any end events, to avoid a misfire */
+    NRF_RADIO->EVENTS_END = 0;
     if (m_scanner.p_buffer_packet != NULL)
     {
         packet_buffer_free(&m_scanner.packet_buffer, m_scanner.p_buffer_packet);
