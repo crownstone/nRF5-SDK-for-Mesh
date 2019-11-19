@@ -214,6 +214,11 @@ static void radio_stop(void)
     NRF_RADIO->TASKS_DISABLE = 1;
     /* clear any end events, to avoid a misfire */
     NRF_RADIO->EVENTS_END = 0;
+    // Abandon any pending scan requests
+    if (m_scanner.state == SCANNER_STATE_SCAN_REQ)
+    {
+        m_scanner.state = SCANNER_STATE_RUNNING;
+    }
     if (m_scanner.p_buffer_packet != NULL)
     {
         packet_buffer_free(&m_scanner.packet_buffer, m_scanner.p_buffer_packet);
@@ -273,15 +278,10 @@ static void radio_start(void)
     }
     m_scanner.window_state = SCAN_WINDOW_STATE_ON;
 }
-    
-//static int incoming = 0;
 
 static void radio_handle_rx_end_event(void)
 {
     DEBUG_PIN_SCANNER_ON(DEBUG_PIN_SCANNER_END_EVENT);
-
-//  incoming++;
-//    __LOG(LOG_SRC_NETWORK, LOG_LEVEL_DBG3, "Rx event %x\n", incoming);
 
     bool successful_receive = false;
     scanner_packet_t * p_packet = (scanner_packet_t *) m_scanner.p_buffer_packet->packet;
@@ -354,8 +354,6 @@ static void radio_handle_rx_end_event(void)
     }
 
     m_scanner.p_buffer_packet = NULL;
-    
-    //incoming--;
 
     DEBUG_PIN_SCANNER_OFF(DEBUG_PIN_SCANNER_END_EVENT);
 }
@@ -486,11 +484,6 @@ void scanner_radio_stop(void)
 {
     DEBUG_PIN_SCANNER_ON(DEBUG_PIN_SCANNER_STOP);
     m_scanner.has_radio_context = false;
-    // Abandon any pending scan requests
-    if (m_scanner.state == SCANNER_STATE_SCAN_REQ)
-    {
-        m_scanner.state = SCANNER_STATE_RUNNING;
-    }
     radio_stop();
     DEBUG_PIN_SCANNER_OFF(DEBUG_PIN_SCANNER_IN_ACTION);
     DEBUG_PIN_SCANNER_OFF(DEBUG_PIN_SCANNER_STOP);
