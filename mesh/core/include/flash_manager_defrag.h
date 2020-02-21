@@ -50,6 +50,13 @@
  */
 
 /**
+ * Calculates the address of the recovery page.
+ *
+ * @return     Pointer to the start of the recovery page.
+ */
+void * flash_manager_defrag_calc_recovery_page();
+
+/**
  * Initialize flash manager defrag handler.
  *
  * @return     Whether recovery was started.

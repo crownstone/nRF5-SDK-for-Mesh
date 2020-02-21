@@ -587,10 +587,11 @@ static bool recover_defrag_progress(void)
 * Interface functions
 *****************************************************************************/
 
-bool flash_manager_defrag_init(void)
+void * flash_manager_defrag_calc_recovery_page()
 {
+    void * recovery_area = NULL;
 #ifdef FLASH_MANAGER_RECOVERY_PAGE
-    mp_recovery_area = (flash_manager_recovery_area_t *) FLASH_MANAGER_RECOVERY_PAGE;
+    recovery_area = (flash_manager_recovery_area_t *) FLASH_MANAGER_RECOVERY_PAGE;
 #else
     flash_manager_recovery_area_t * p_flash_end;
     if (BOOTLOADERADDR() != BLANK_FLASH_WORD &&
@@ -608,9 +609,14 @@ bool flash_manager_defrag_init(void)
         p_flash_end = (flash_manager_recovery_area_t *) DEVICE_FLASH_END_GET();
     }
     /* Recovery area is last page of application controlled flash */
-    mp_recovery_area = p_flash_end - FLASH_MANAGER_RECOVERY_PAGE_OFFSET_PAGES - 1; /* pointer arithmetic */
+    recovery_area = p_flash_end - FLASH_MANAGER_RECOVERY_PAGE_OFFSET_PAGES - 1; /* pointer arithmetic */
 #endif
+    return recovery_area;
+}
 
+bool flash_manager_defrag_init(void)
+{
+	mp_recovery_area = (flash_manager_recovery_area_t *) flash_manager_defrag_calc_recovery_page();
     return recover_defrag_progress();
 }
 
