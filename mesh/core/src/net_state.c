@@ -385,7 +385,7 @@ static void flash_store_iv_index(void)
     iv_index_data.iv_index = m_net_state.iv_index;
     iv_index_data.iv_update_in_progress = m_net_state.iv_update.state;
 
-    m_storage_write_cb(FLASH_HANDLE_SEQNUM, &iv_index_data, sizeof(iv_index_data));
+    m_storage_write_cb(FLASH_HANDLE_IV_INDEX, &iv_index_data, sizeof(iv_index_data));
 #endif
 }
 
