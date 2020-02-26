@@ -81,7 +81,7 @@
 #define SEQNUM_INVALID              (0xFFFFFFFF)
 #define SEQNUM_MASK                 (NETWORK_SEQNUM_MAX)
 
-#if PERSISTENT_STORAGE
+#if PERSISTENT_STORAGE || MESH_EXTERNAL_PERSISTENT_STORAGE
     #define RESET_SEQNUM_MAX() (m_net_state.seqnum_max_available = 0)
 #else
     #define RESET_SEQNUM_MAX() (m_net_state.seqnum_max_available = NETWORK_SEQNUM_MAX + 1)
@@ -121,6 +121,13 @@ static bool m_enabled;
 static bool m_iv_state_set;
 
 static nrf_mesh_evt_handler_t m_mesh_evt_handler;
+
+#if MESH_EXTERNAL_PERSISTENT_STORAGE
+static net_state_storage_write m_storage_write_cb = NULL;
+static net_state_storage_read  m_storage_read_cb  = NULL;
+static net_state_storage_erase m_storage_erase_cb = NULL;
+#endif
+
 /*****************************************************************************
 * Static functions
 *****************************************************************************/
@@ -292,7 +299,7 @@ static void mesh_evt_handler(const nrf_mesh_evt_t * p_evt)
 * FLASH MANAGER CODE
 *****************************************************************************/
 
-#if PERSISTENT_STORAGE
+#if PERSISTENT_STORAGE || MESH_EXTERNAL_PERSISTENT_STORAGE
 typedef struct
 {
     uint32_t iv_index;
@@ -307,9 +314,12 @@ typedef struct
     const net_flash_data_sequence_number_t * p_seqnum_data;
 } entry_recover_context_t;
 
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
 /** Flash manager handling Network state flash storage. */
 static flash_manager_t m_flash_manager;
+#endif
 static bool m_seqnum_allocation_in_progress;
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
 /** Flash operation function to call when the memory returns. */
 typedef void (*flash_op_func_t)(void);
 
@@ -319,6 +329,7 @@ static void flash_mem_available(void * p_args)
     flash_op_func_t func = (flash_op_func_t) p_args; /*lint !e611 Suspicious cast */
     func();
 }
+#endif
 
 static void seqnum_block_allocate(void)
 {
@@ -327,6 +338,7 @@ static void seqnum_block_allocate(void)
         uint32_t next_block = m_net_state.seqnum_max_available + NETWORK_SEQNUM_FLASH_BLOCK_SIZE;
         if (next_block <= NETWORK_SEQNUM_MAX + 1)
         {
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
             fm_entry_t * p_new_entry = flash_manager_entry_alloc(&m_flash_manager, FLASH_HANDLE_SEQNUM, sizeof(net_flash_data_sequence_number_t));
             if (p_new_entry == NULL)
             {
@@ -341,12 +353,17 @@ static void seqnum_block_allocate(void)
                 m_seqnum_allocation_in_progress = true;
                 flash_manager_entry_commit(p_new_entry);
             }
+#else
+            m_seqnum_allocation_in_progress = true;
+            m_storage_write_cb(FLASH_HANDLE_SEQNUM, &next_block, sizeof(next_block));
+#endif
         }
     }
 }
 
 static void flash_store_iv_index(void)
 {
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
     fm_entry_t * p_new_entry = flash_manager_entry_alloc(&m_flash_manager, FLASH_HANDLE_IV_INDEX, sizeof(net_flash_data_iv_index_t));
     if (p_new_entry == NULL)
     {
@@ -363,8 +380,16 @@ static void flash_store_iv_index(void)
 
         flash_manager_entry_commit(p_new_entry);
     }
+#else
+    net_flash_data_iv_index_t iv_index_data;
+    iv_index_data.iv_index = m_net_state.iv_index;
+    iv_index_data.iv_update_in_progress = m_net_state.iv_update.state;
+
+    m_storage_write_cb(FLASH_HANDLE_SEQNUM, &iv_index_data, sizeof(iv_index_data));
+#endif
 }
 
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
 static void flash_write_complete(const flash_manager_t * p_manager,
                                  const fm_entry_t * p_entry,
                                  fm_result_t result)
@@ -394,9 +419,19 @@ static void flash_write_complete(const flash_manager_t * p_manager,
         event_handle(&evt);
     }
 }
+#else
+void net_state_ext_write_done(uint16_t handle, void* data_ptr, uint16_t data_size) {
+    if (handle == FLASH_HANDLE_SEQNUM) {
+        NRF_MESH_ASSERT(m_seqnum_allocation_in_progress);
+        m_net_state.seqnum_max_available = ((uint32_t*)data_ptr)[0];
+        m_seqnum_allocation_in_progress = false;
+    }
+}
+#endif
 
 static void init_flash_storage(void)
 {
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
     flash_manager_config_t config;
     memset(&config, 0, sizeof(config));
     config.min_available_space = 0;
@@ -410,8 +445,10 @@ static void init_flash_storage(void)
                                                  .p_args = init_flash_storage};
         flash_manager_mem_listener_register(&mem_listener);
     }
+#endif
 }
 
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
 static fm_iterate_action_t entry_recover_cb(const fm_entry_t * p_entry, void * p_args)
 {
     entry_recover_context_t * p_context = p_args;
@@ -428,10 +465,12 @@ static fm_iterate_action_t entry_recover_cb(const fm_entry_t * p_entry, void * p
     }
     return FM_ITERATE_ACTION_CONTINUE;
 }
+#endif
 
 void net_state_recover_from_flash(void)
 {
     bearer_event_critical_section_begin();
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
     entry_recover_context_t context = {NULL, NULL};
     (void) flash_manager_entries_read(&m_flash_manager, NULL, entry_recover_cb, &context);
 
@@ -462,6 +501,27 @@ void net_state_recover_from_flash(void)
             m_net_state.seqnum = *context.p_seqnum_data;
         }
     }
+#else
+    net_flash_data_iv_index_t iv_index_data;
+    uint32_t ret_code_iv = m_storage_read_cb(FLASH_HANDLE_IV_INDEX, &iv_index_data, sizeof(iv_index_data));
+
+    net_flash_data_sequence_number_t seqnum_data;
+    uint32_t ret_code_seq = m_storage_read_cb(FLASH_HANDLE_SEQNUM, &seqnum_data, sizeof(seqnum_data));
+    if (ret_code_iv != NRF_SUCCESS || ret_code_seq != NRF_SUCCESS)
+    {
+        /* Need both data types to consider the storage valid. Reset state and flash both. */
+        m_net_state.seqnum = 0;
+        m_net_state.iv_index = 0;
+        m_net_state.iv_update.state = NET_STATE_IV_UPDATE_NORMAL;
+        flash_store_iv_index();
+    }
+    else
+    {
+        m_net_state.iv_index = iv_index_data.iv_index;
+        m_net_state.iv_update.state = (net_state_iv_update_t) iv_index_data.iv_update_in_progress;
+        m_net_state.seqnum = seqnum_data;
+    }
+#endif
 
     /* Regardless of flash contents, we must allocate the next block of sequence numbers before we
      * start sending. We set the seqnum max to the seqnum, and trigger the allocation, so no
@@ -473,6 +533,7 @@ void net_state_recover_from_flash(void)
 
 void net_state_reset(void)
 {
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
     if (flash_manager_entry_invalidate(&m_flash_manager, FLASH_HANDLE_SEQNUM) == NRF_SUCCESS &&
         flash_manager_entry_invalidate(&m_flash_manager, FLASH_HANDLE_IV_INDEX) == NRF_SUCCESS)
     {
@@ -486,16 +547,26 @@ void net_state_reset(void)
                                                  .p_args = net_state_reset};
         flash_manager_mem_listener_register(&mem_listener);
     }
+#else
+    m_storage_erase_cb(FLASH_HANDLE_SEQNUM);
+    m_storage_erase_cb(FLASH_HANDLE_IV_INDEX);
+    memset(&m_net_state, 0, sizeof(m_net_state));
+    m_iv_state_set = false;
+#endif
     seqnum_block_allocate();
 }
 
 const void * net_state_flash_area_get(void)
 {
+#if MESH_EXTERNAL_PERSISTENT_STORAGE != 1
 #ifdef NET_FLASH_AREA_LOCATION
     return (const void *) NET_FLASH_AREA_LOCATION;
 #else
     /* Default to putting the area directly before the recovery page */
     return (((const uint8_t *) flash_manager_recovery_page_get()) - (NET_FLASH_PAGE_COUNT * PAGE_SIZE));
+#endif
+#else
+    return 0;
 #endif
 }
 
@@ -536,7 +607,7 @@ void net_state_init(void)
     m_iv_update_timer.p_next = NULL;
     m_test_mode = false;
 
-#if PERSISTENT_STORAGE
+#if PERSISTENT_STORAGE || MESH_EXTERNAL_PERSISTENT_STORAGE
     init_flash_storage();
 #else
     RESET_SEQNUM_MAX();
@@ -726,3 +797,18 @@ uint32_t net_state_iv_index_set(uint32_t iv_index, bool iv_update)
         return NRF_SUCCESS;
     }
 }
+
+#if MESH_EXTERNAL_PERSISTENT_STORAGE
+void net_state_register_ext_storage_write_cb(net_state_storage_write storage_write_cb) {
+    m_storage_write_cb = storage_write_cb;
+}
+
+void net_state_register_ext_storage_read_cb(net_state_storage_read storage_read_cb) {
+    m_storage_read_cb = storage_read_cb;
+}
+
+void net_state_register_ext_storage_erase_cb(net_state_storage_erase storage_erase_cb) {
+	m_storage_erase_cb = storage_erase_cb;
+}
+#endif
+

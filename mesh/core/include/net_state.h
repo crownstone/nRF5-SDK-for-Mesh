@@ -202,5 +202,18 @@ net_state_iv_update_t net_state_iv_update_get(void);
 
 /** @} */
 
+#if MESH_EXTERNAL_PERSISTENT_STORAGE
+//typedef uint32_t (*net_state_storage_write_done)(uint16_t handle, void* data_ptr, uint16_t data_size);
+//typedef uint32_t (*net_state_storage_write)(uint16_t handle, void* data_ptr, uint16_t data_size, net_state_storage_write_done done_cb);
+typedef uint32_t (*net_state_storage_write)(uint16_t handle, void* data_ptr, uint16_t data_size);
+typedef uint32_t (*net_state_storage_read)(uint16_t handle, void* data_ptr, uint16_t data_size);
+typedef uint32_t (*net_state_storage_erase)(uint16_t handle);
+
+void net_state_register_ext_storage_write_cb(net_state_storage_write storage_write_cb);
+void net_state_register_ext_storage_read_cb(net_state_storage_read storage_read_cb);
+void net_state_register_ext_storage_erase_cb(net_state_storage_erase storage_erase_cb);
+void net_state_ext_write_done(uint16_t handle, void* data_ptr, uint16_t data_size);
+#endif
+
 #endif /* NET_STATE_H__ */
 
